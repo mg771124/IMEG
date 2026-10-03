@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 运行产物：模板、截图、字库、日志都不要进仓库
+*.log
+capture_*.png
+vendor/
+scrcpy-server.jar
+tools/platform-tools/
+
+# 本地数据目录（默认在 ~/.imeg，若放在仓库内则忽略）
+.imeg/

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imeg"
+version = "0.1.0"
+description = "大漠风格的图色/控制工具：ADB 后台截图、模拟器窗口捕获、透明图、找图找色、后台键鼠、OCR"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "PySide6>=6.5",
+    "Pillow>=9.0",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+ocr = ["rapidocr-onnxruntime>=1.3"]
+scrcpy = ["av>=11.0"]
+all = ["rapidocr-onnxruntime>=1.3", "av>=11.0"]
+
+[project.scripts]
+imeg = "imeg.ui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["imeg*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

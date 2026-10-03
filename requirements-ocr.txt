@@ -1,0 +1,5 @@
+# OCR 可选依赖：装任意一个就能用（推荐 rapidocr，中文效果最好、纯离线）
+rapidocr-onnxruntime>=1.3
+
+# scrcpy 截图源需要解码 H.264：
+av>=11.0
