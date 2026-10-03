@@ -42,6 +42,30 @@ python -m imeg            # 或 pip install -e . 之后直接 imeg
 
 **ADB**：把 `adb` 放进 PATH，或设置环境变量 `ADB` / `ANDROID_HOME`（会自动找 `platform-tools/adb`），也可以直接丢到 `tools/platform-tools/adb.exe`。
 
+### Windows 批次檔（.bat）
+
+不想開命令列的話，直接雙擊 repo 根目錄的批次檔：
+
+| 檔案 | 用途 |
+|---|---|
+| `menu.bat` | 主選單：安裝 / 啟動 / 打包 / 測試 / 開資料夾 |
+| `install.bat` | 建立 `.venv` 並安裝 requirements，可選裝 OCR 與 av |
+| `start.bat` | 啟動圖形介面 |
+| `build.bat` | 打包 EXE（互動式選 `--with-ocr` / `--with-av` / `--zip` / `--sign-self`） |
+| `test.bat` | 跑 pytest |
+
+這幾個 .bat **一律是純 ASCII + CRLF、無 BOM，不是 UTF-8**（cmd.exe 用主控台字碼頁
+解讀批次檔，存成 UTF-8 中文會整片變亂碼；存成 Big5 又會踩到「功、會」這類第二個 byte
+是 `\` 或 `|` 的地雷字），所以訊息是英文。要改內容請改 `tools/make_bat.py` 再重新產生：
+
+```bash
+python tools/make_bat.py           # 重新寫出所有 .bat
+python tools/make_bat.py --check   # 只檢查編碼
+python -m pytest tests/test_bats.py -q
+```
+
+細節見 `docs/bat-notes.md`。
+
 ---
 
 ## 2. 三种截图源（左上角「截图源」面板）
@@ -304,7 +328,7 @@ set IMEG_SIGN_PASSWORD=证书密码
 build_exe.bat
 ```
 
-不设置 PFX 时，批处理会创建并使用本机自签名证书。**自签名只是在 EXE 中写入签名，不会自动被另一台电脑信任，也不能消除 SmartScreen 警告。**
+
 
 产出 `dist/IMEG/` 整个目录，拷到**没装 Python / Qt / OpenCV / adb 的电脑**上双击 `IMEG.exe` 就能跑。
 它默认会做这些事：
