@@ -1,0 +1,6 @@
+# 核心依赖（必装）
+numpy>=1.24
+opencv-python-headless>=4.8      # Windows 上如果要 cv2.imshow 就换成 opencv-python
+PySide6>=6.5                      # 图形界面
+Pillow>=9.0
+psutil>=5.9
