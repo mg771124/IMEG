@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton, QSpinBox, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ...core.color import parse_color, rgb_to_hex
+from ...core.palette import Palette, export_palette, import_palette
 from ...core.types import Rect
 from ..widgets import ColorChip
 
@@ -110,6 +112,123 @@ class ColorPanel(QWidget):
         self.out.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.out.setStyleSheet("color:#8bd28b;font-family:Consolas,monospace;font-size:11px;")
         root.addWidget(self.out)
+
+        # ------------------------------------------------------------ 配色产出
+        box3 = QGroupBox("配色产出（导出给中控台 / 脚本）")
+        v3 = QVBoxLayout(box3)
+        self.chk_batch = QCheckBox("批量取色：Ctrl + 左键点画面即记录一个点")
+        self.chk_batch.setToolTip("连着点就能快速产出一整套配色，不用一个个手填")
+        v3.addWidget(self.chk_batch)
+        self.list_palette = QListWidget()
+        self.list_palette.setMaximumHeight(120)
+        v3.addWidget(self.list_palette)
+
+        row4 = QHBoxLayout()
+        b_add = QPushButton("加入当前色")
+        b_del = QPushButton("删除")
+        b_clear2 = QPushButton("清空")
+        b_add.clicked.connect(self.palette_add_current)
+        b_del.clicked.connect(self.palette_remove)
+        b_clear2.clicked.connect(self.palette_clear)
+        for b in (b_add, b_del, b_clear2):
+            row4.addWidget(b)
+        v3.addLayout(row4)
+
+        row5 = QHBoxLayout()
+        b_export = QPushButton("导出…")
+        b_import = QPushButton("导入…")
+        b_copy = QPushButton("复制大漠串")
+        b_export.clicked.connect(self.palette_export)
+        b_import.clicked.connect(self.palette_import)
+        b_copy.clicked.connect(self.palette_copy)
+        for b in (b_export, b_import, b_copy):
+            row5.addWidget(b)
+        v3.addLayout(row5)
+        root.addWidget(box3)
+
+        self.palette = Palette()
+        try:
+            self.ctx.canvas.sigPick.connect(self.capture_point)
+        except Exception:
+            pass
+
+    # ---------------------------------------------------------------- 配色产出
+    def _device_info(self) -> dict:
+        try:
+            return self.ctx.dm.GetBindInfo()
+        except Exception:
+            return {}
+
+    def capture_point(self, x: int, y: int) -> None:
+        """批量取色：记录一个点（颜色 + 坐标）。"""
+        if not self.chk_batch.isChecked():
+            return
+        color = self.ctx.color_at(x, y)
+        tol = self.edit_color.text().split("-")[-1] if "-" in self.edit_color.text() else "101010"
+        spec = f"{color}-{tol}"
+        try:
+            parse_color(spec)
+        except Exception:
+            spec = color
+        name = f"色{len(self.palette) + 1}"
+        self.palette.add(name=name, color=spec, offsets=self.offset_spec(), point=(x, y))
+        self._refresh_palette_list()
+        self.ctx.msg(f"已记录 {name} {spec} @({x},{y})", "info")
+
+    def palette_add_current(self) -> None:
+        x, y = self.ctx.last_pos()
+        self.palette.add(name=f"色{len(self.palette) + 1}",
+                         color=self.edit_color.text().strip(),
+                         offsets=self.offset_spec(), point=(x, y))
+        self._refresh_palette_list()
+
+    def palette_remove(self) -> None:
+        for item in self.list_palette.selectedItems():
+            self.palette.remove(self.list_palette.row(item))
+        self._refresh_palette_list()
+
+    def palette_clear(self) -> None:
+        self.palette.colors.clear()
+        self._refresh_palette_list()
+
+    def _refresh_palette_list(self) -> None:
+        self.list_palette.clear()
+        for c in self.palette.colors:
+            pt = f"@({c.point[0]},{c.point[1]})" if c.point else ""
+            tag = " [多点]" if c.is_multi else ""
+            self.list_palette.addItem(f"{c.name}  {c.color}  {pt}{tag}")
+
+    def palette_export(self) -> None:
+        if not len(self.palette):
+            self.ctx.msg("配色表是空的（先批量取几个点）", "warn")
+            return
+        self.palette.device = self._device_info()
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出配色", "palette.json", "JSON (*.json);;CSV (*.csv);;大漠文本 (*.txt)")
+        if not path:
+            return
+        export_palette(self.palette, path)
+        self.ctx.msg(f"已导出 {len(self.palette)} 条配色 -> {path}", "ok")
+
+    def palette_import(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入配色", "", "配色文件 (*.json *.csv *.txt);;所有文件 (*)")
+        if not path:
+            return
+        try:
+            self.palette = import_palette(path)
+        except Exception as exc:
+            self.ctx.msg(f"导入失败: {exc}", "error")
+            return
+        self._refresh_palette_list()
+        self.ctx.msg(f"已导入 {len(self.palette)} 条配色", "info")
+
+    def palette_copy(self) -> None:
+        if not len(self.palette):
+            self.ctx.msg("配色表是空的", "warn")
+            return
+        QApplication.clipboard().setText(self.palette.to_text())
+        self.ctx.msg("已复制（TAB 分隔：名称 / 颜色 / 偏移串 / 坐标 / 备注）", "info")
 
     # ---------------------------------------------------------------- 颜色编辑
     def _sync_chip(self) -> None:

@@ -240,6 +240,7 @@ class MainWindow(QMainWindow):
         act_click = menu.addAction("点击该点")
         act_base = menu.addAction("设为多点找色基准点")
         act_xy = menu.addAction("填到键鼠面板")
+        act_palette = menu.addAction("记录到配色表")
         chosen = menu.exec(self.canvas.mapToGlobal(self.canvas.mapFromScene(x, y)))
         if not chosen:
             return
@@ -258,6 +259,11 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.panel_input)
             self.panel_input.spin_x.setValue(x)
             self.panel_input.spin_y.setValue(y)
+        elif chosen is act_palette:
+            self.tabs.setCurrentWidget(self.panel_color)
+            self.panel_color.chk_batch.setChecked(True)
+            self.ctx.hover = (x, y, self.ctx.hover[2])
+            self.panel_color.capture_point(x, y)
 
     def about(self) -> None:
         QMessageBox.information(

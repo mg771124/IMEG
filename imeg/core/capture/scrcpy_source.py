@@ -24,6 +24,7 @@ import re
 import socket
 import struct
 import subprocess
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -36,8 +37,16 @@ from .base import CaptureSource
 
 __all__ = ["ScrcpyCaptureSource", "find_server_jar", "server_version", "SERVER_JAR_CANDIDATES"]
 
+def _exe_dir() -> Path | None:
+    """打包成 EXE 后的程序目录（jar 丢在 exe 旁边就能找到）。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return None
+
+
 SERVER_JAR_CANDIDATES = [
     Path(os.environ.get("IMEG_SCRCPY_SERVER", "")) if os.environ.get("IMEG_SCRCPY_SERVER") else None,
+    _exe_dir() / "scrcpy-server.jar" if _exe_dir() else None,
     Path.home() / ".imeg" / "scrcpy-server.jar",
     Path(__file__).resolve().parents[2] / "vendor" / "scrcpy-server.jar",
     Path.cwd() / "scrcpy-server.jar",

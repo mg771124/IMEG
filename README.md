@@ -108,7 +108,28 @@ python examples/make_transparent.py input.png pic/button.png --color FFFFFF --to
 
 ---
 
-## 4. 图色：找图 / 找色 / 多点找色
+## 4. 配色产出（导出给中控台 / 别的脚本）
+
+给"要在别处复用这套色"的场景留的通道：把界面上点的颜色 + 坐标 + 多点偏移
+一起存下来，导出成标准格式，另一边的中控台/脚本直接读就行。
+
+**操作流程**：找色页签 → 勾上「批量取色」→ **Ctrl + 左键**点画面
+（或者在画布上右键 → 「记录到配色表」）→ 导出 / 复制。
+
+**导出格式**（`imeg.core.palette`，schema `imeg.palette/1`）：
+
+| 格式 | 内容 |
+| --- | --- |
+| JSON | `{schema, name, device:{source,resolution,device_size,serial}, updated_at, colors:[{name, color, offsets, point, note}]}`，推荐用这个 |
+| CSV | 表头 `name,color,offsets,x,y,note`，Excel/表格直接开 |
+| TXT | 制表符分隔：`名称\t颜色\t偏移串\t坐标\t备注`，适合人看和 diff |
+
+颜色串和偏移串都用大漠写法（`RRGGBB-DELTA`、`dx|dy|RRGGBB-DELTA,...`），
+所以导出的东西可以直接喂给大漠插件 / 大漠脚本。旧的 `|` 分隔文本也能导入（向后兼容）。
+
+---
+
+## 5. 图色：找图 / 找色 / 多点找色
 
 ### 颜色串格式（兼容大漠）
 
@@ -146,7 +167,7 @@ RRGGBB-DELTA|RRGGBB-DELTA       多色，任一命中即命中
 
 ---
 
-## 5. 后台键鼠
+## 6. 后台键鼠
 
 | 场景 | 实现 | 是否需要前台 |
 |---|---|---|
@@ -158,7 +179,7 @@ RRGGBB-DELTA|RRGGBB-DELTA       多色，任一命中即命中
 
 ---
 
-## 6. OCR
+## 7. OCR
 
 三种后端，按可用性自动挑：
 
@@ -175,7 +196,7 @@ RRGGBB-DELTA|RRGGBB-DELTA       多色，任一命中即命中
 
 ---
 
-## 7. 脚本：大漠风格 API
+## 8. 脚本：大漠风格 API
 
 界面右下「脚本」页签是一个 Python 控制台，`dm` 已经注入，直接写：
 
@@ -212,7 +233,7 @@ dm.FindStr(0, 0, 500, 100, "开始|设置", "FFFFFF-303030", 0.9)
 
 ---
 
-## 8. 目录结构
+## 9. 目录结构
 
 ```
 imeg/
@@ -223,6 +244,7 @@ imeg/
     adb.py          ADB 客户端：设备、无线连接、后台截图、真实解析度、input 注入
     inputctl.py     后台键鼠（adb input / Windows PostMessage）
     ocr.py          OCR：rapidocr / tesseract / 字库
+    palette.py      配色表：取色结果存 JSON / CSV / TXT，给中控台复用
     dm.py           大漠风格 API 门面
     capture/
       base.py       截图源抽象（后台线程抓帧）
@@ -231,22 +253,75 @@ imeg/
       scrcpy_source.py scrcpy 源（2.x/3.x/4.x 协议）
       win32.py      ctypes 封装的 Windows API（后台截图 + 后台键鼠）
   ui/               PySide6 界面（画布 / 各功能面板 / 脚本控制台）
-  tools/            fetch_scrcpy_server 等小工具
+  resources/        图标（imeg.ico / imeg.png），打包时会嵌进 EXE
+  tools/
+    build_exe.py    一键打包 EXE（免依赖 + 版本信息 + 签名）
+    pyi_entry.py    打包入口（必须绝对导入，见文件内说明）
+    fetch_scrcpy_server.py / make_icon.py 等小工具
 examples/           无界面脚本示例
 tests/              核心引擎 + 离屏 UI 冒烟测试
 ```
 
-## 9. 测试
+## 10. 测试
 
 ```bash
 pip install pytest
-pytest -q                 # 30 项：颜色解析、找图（含透明图）、找色、多点找色、
-                          # 透明图算法、dm 门面、字库 OCR、离屏 UI 各面板
+pytest -q                 # 51 项：颜色解析、找图（含透明图）、找色、多点找色、
+                          # 透明图算法、dm 门面、字库 OCR、配色表导入导出、
+                          # 打包命令拼装、离屏 UI 各面板
 ```
 
 UI 测试会离屏启动 Qt（`QT_QPA_PLATFORM=offscreen`），把每个面板真的点一遍。
 
-## 10. 平台限制 & 已知问题
+## 11. 打包成 EXE（目标机器零依赖）
+
+```bash
+python -m imeg.tools.build_exe
+```
+
+产出 `dist/IMEG/` 整个目录，拷到**没装 Python / Qt / OpenCV / adb 的电脑**上双击 `IMEG.exe` 就能跑。
+它默认会做这些事：
+
+1. 用 PyInstaller 打 `onedir`（不用 onefile：单文件自解压壳是杀软头号特征）+ `--noupx`
+2. 内嵌 **Windows 版本信息资源**（公司名/产品名/版本号/图标）—— 没有这个的
+   PyInstaller 程序是杀软的重点怀疑对象
+3. 把 `adb` + `AdbWinApi.dll` 打进 `tools/platform-tools/`，目标机不用装 adb 也能连设备
+4. 带上 VC++ 运行库，避免"缺 msvcp140.dll"
+5. 生成「使用说明.txt」和 `pic/` 模板目录
+
+常用参数：
+
+| 参数 | 作用 |
+| --- | --- |
+| `--onefile` | 打成单文件 EXE（启动慢、更容易误报，不推荐） |
+| `--console` | 带控制台窗口，方便排错 |
+| `--zip` | 顺手压一个便携 zip |
+| `--with-ocr` / `--with-av` | 把 OCR（rapidocr）和 scrcpy 需要的 av 一起打进去 |
+| `--no-adb` / `--no-vcrt` | 跳过 adb / VC++ 运行库 |
+| `--sign-self` | 生成自签名证书并签名 |
+| `--sign-pfx x.pfx --sign-password xxx` | 用你自己的证书签名 |
+| `--extra "..."` | 原样追加给 PyInstaller 的参数 |
+| `--dry-run` | 只打印命令，不执行 |
+
+**关于"签名避免被当病毒"的实话**：自签名证书**不能**让 SmartScreen 放行
+（它不信任自签证书），但能消掉"未签名可执行程序"这一类启发式规则，文件属性里
+也有发布者/版本/时间戳，不像随手生成的马。真想让 Windows 不再弹"未知发布者"只有两条路：
+
+* 买 OV/EV 代码签名证书
+* 走免费的正经渠道：**SignPath.io Free Code Signing**（面向开源项目，要求公开仓库 +
+  OSI 许可证，本项目 MIT 符合条件）。签发后把 EXE 提交一次
+  [VirusTotal](https://www.virustotal.com) 复检，信誉积累会快很多。
+
+打包完可以先自检一下模块有没有漏：
+
+```bash
+IMEG.exe --selftest      # 逐个 import 核心模块 + 试着构造主窗口
+IMEG.exe --version
+```
+
+---
+
+## 12. 平台限制 & 已知问题
 
 * **窗口捕获 / Windows 后台消息键鼠只在 Windows 上可用**（Linux/macOS 上该源会提示不支持，其它功能照常）
 * ADB 截图对 **DRM / 安全页面**（部分视频与银行 App）会返回黑图，这是 Android 的限制，不是本工具的问题
@@ -255,6 +330,6 @@ UI 测试会离屏启动 Qt（`QT_QPA_PLATFORM=offscreen`），把每个面板�
 * 字库 OCR 只做单字匹配，没有做字体大小自适应（切字后按外接矩形缩放再比 IoU），
   同一套字库换分辨率时需要重录字符
 
-## 11. License
+## 13. License
 
 MIT

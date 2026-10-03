@@ -31,6 +31,7 @@ class ImageView(QGraphicsView):
     sigHover = Signal(int, int, tuple)          # 图像坐标 + (r,g,b)
     sigSelection = Signal(QRect)                # 选区（图像坐标，含右下端点）
     sigContext = Signal(int, int)               # 右键点击位置
+    sigPick = Signal(int, int)                  # Ctrl+左键：取一个点（批量采色用）
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -160,6 +161,9 @@ class ImageView(QGraphicsView):
             super().mousePressEvent(event)
             return
         if event.button() == Qt.MouseButton.LeftButton:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self.sigPick.emit(int(pos.x()), int(pos.y()))
+                return
             self._start = pos
             self._selecting = True
             self._sel_item.setRect(QRectF(pos, pos))
