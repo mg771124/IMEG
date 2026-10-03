@@ -1,0 +1,5 @@
+# 批次檔固定是「純 ASCII + CRLF + 無 BOM」
+# -text 讓 Git 完全不要動它的換行與內容（core.autocrlf 也一樣）
+# 否則 Windows 上 checkout 會被轉成 CRLF、Linux 上被當成文字檔 diff，
+# 編碼一旦被動過，cmd.exe 讀出來就錯了
+*.bat -text
