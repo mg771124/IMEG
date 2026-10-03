@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import ast
 import sys
+import zipfile
 
 import pytest
 
+from imeg.core import adb as ADB
 from imeg.tools import build_exe as B
 
 
@@ -17,7 +19,10 @@ class Args:
         self.onefile = False
         self.with_ocr = False
         self.with_av = False
+        self.with_scrcpy_server = False
         self.no_adb = False
+        self.require_adb = False
+        self.require_signature = False
         self.no_vcrt = False
         self.zip = False
         self.extra = None
@@ -100,6 +105,15 @@ def test_cmd_excludes_bloat_and_keeps_core():
             "imeg.ui.panels.findpic_panel", "imeg.ui.panels.transparent_panel"} <= hidden
 
 
+def test_cmd_collects_optional_runtime_files_and_models():
+    cmd = _cmd(with_ocr=True, with_av=True, with_scrcpy_server=True)
+    collected = {cmd[i + 1] for i, token in enumerate(cmd) if token == "--collect-all"}
+    excluded = {cmd[i + 1] for i, token in enumerate(cmd) if token == "--exclude-module"}
+    assert {"rapidocr_onnxruntime", "onnxruntime", "av"} <= collected
+    assert "rapidocr_onnxruntime" not in excluded
+    assert "av" not in excluded
+
+
 def test_cmd_extra_args():
     cmd = _cmd(extra="--strip --log-level WARN")
     assert cmd[-4:] == ["--strip", "--log-level", "WARN", str(B.ENTRY)]
@@ -129,7 +143,80 @@ def test_write_dist_readme(tmp_path):
 
 def test_bundle_adb_missing_is_ok(tmp_path, monkeypatch):
     monkeypatch.setattr(B.shutil, "which", lambda _name: None)
+    for key in ("ADB", "ANDROID_ADB", "ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        monkeypatch.delenv(key, raising=False)
     assert B.bundle_adb(tmp_path) is False
+
+
+def test_bundle_adb_copies_exe_and_windows_dlls(tmp_path, monkeypatch):
+    source = tmp_path / "sdk" / "platform-tools"
+    source.mkdir(parents=True)
+    for name in ("adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll"):
+        (source / name).write_bytes(b"test")
+    monkeypatch.setenv("ADB", str(source / "adb.exe"))
+    monkeypatch.setattr(B.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(B.platform, "system", lambda: "Windows")
+
+    out = tmp_path / "dist"
+    assert B.bundle_adb(out) is True
+    dest = out / "tools" / "platform-tools"
+    assert all((dest / name).is_file()
+               for name in ("adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll"))
+
+
+def test_frozen_app_finds_adb_next_to_exe(tmp_path, monkeypatch):
+    tools = tmp_path / "tools" / "platform-tools"
+    tools.mkdir(parents=True)
+    adb = tools / "adb"
+    adb.write_bytes(b"adb")
+    adb.chmod(0o755)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "IMEG.exe"))
+    monkeypatch.setattr(ADB.shutil, "which", lambda _name: None)
+    for key in ("ADB", "ANDROID_ADB", "ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        monkeypatch.delenv(key, raising=False)
+
+    assert ADB._find_adb() == str(adb)
+
+
+def test_bundle_scrcpy_server_copies_jar_and_version(tmp_path):
+    source = tmp_path / "scrcpy-server.jar"
+    source.write_bytes(b"jar")
+    source.with_suffix(".json").write_text('{"version":"3.3.1"}', encoding="utf-8")
+    out = tmp_path / "dist"
+    assert B.bundle_scrcpy_server(out, source=source, required=True) is True
+    assert (out / "scrcpy-server.jar").read_bytes() == b"jar"
+    assert (out / "scrcpy-server.json").is_file()
+
+
+def test_batch_builds_signed_portable_full_dependency_bundle():
+    bat = (B.ROOT / "build_exe.bat").read_text(encoding="utf-8")
+    assert "--with-ocr" in bat and "--with-av" in bat
+    assert "--with-scrcpy-server" in bat and "--require-adb" in bat
+    assert "--require-signature" in bat and "--sign-self" in bat
+    assert "requirements.txt" in bat and "requirements-ocr.txt" in bat
+
+
+def test_sync_batch_scripts_are_branch_scoped_and_safe():
+    download = (B.ROOT / "download_latest.bat").read_text(encoding="utf-8")
+    upload = (B.ROOT / "upload_to_repo.bat").read_text(encoding="utf-8")
+    branch = "arena/01a1029b-imeg"
+    assert branch in download and "git fetch --prune origin" in download
+    assert "git merge --ff-only" in download and "git status --porcelain" in download
+    assert branch in upload and "git add -A" in upload and "git commit -m" in upload
+    assert "git push --set-upstream origin" in upload
+    assert "--force" not in upload and "--force" not in download
+
+
+def test_onefile_zip_does_not_include_itself(tmp_path, monkeypatch):
+    monkeypatch.setattr(B, "DIST_DIR", tmp_path)
+    monkeypatch.setattr(B, "_version", lambda: "1.2.3")
+    exe = tmp_path / "IMEG.exe"
+    exe.write_bytes(b"portable exe")
+
+    out = B.make_zip(tmp_path, onefile=True)
+    with zipfile.ZipFile(out) as archive:
+        assert archive.namelist() == ["IMEG.exe"]
 
 
 def test_folder_size(tmp_path):

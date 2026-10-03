@@ -53,12 +53,26 @@ def _version() -> str:
 
 
 def _selftest() -> int:
-    """打包后自检：确认所有模块都打进去了（构建脚本会用）。"""
+    """打包后自检；GUI 子系统下 stdout 可能为 None，此时写到 exe 旁的日志。"""
     import importlib
     import platform
 
-    print(f"IMEG {_version()}   python={platform.python_version()}  "
-          f"system={platform.system()}  frozen={getattr(sys, 'frozen', False)}")
+    stream = sys.stdout or sys.stderr
+    messages: list[str] = []
+
+    def report(message: str) -> None:
+        if stream is not None:
+            print(message, file=stream)
+        else:
+            messages.append(message)
+
+    argv = set(sys.argv)
+    required_extras = {
+        "rapidocr_onnxruntime": "--selftest-ocr" in argv,
+        "av": "--selftest-av" in argv,
+    }
+    report(f"IMEG {_version()}   python={platform.python_version()}  "
+           f"system={platform.system()}  frozen={getattr(sys, 'frozen', False)}")
     ok = True
     for mod in ("numpy", "cv2", "PIL", "imeg.core.image", "imeg.core.alpha",
                 "imeg.core.adb", "imeg.core.dm", "imeg.core.ocr", "imeg.core.inputctl",
@@ -69,26 +83,41 @@ def _selftest() -> int:
                 "imeg.core.palette", "imeg.resources"):
         try:
             importlib.import_module(mod)
-            print(f"  OK   {mod}")
+            report(f"  OK   {mod}")
         except Exception as exc:
             ok = False
-            print(f"  FAIL {mod}: {exc}")
+            report(f"  FAIL {mod}: {exc}")
     try:
         from PySide6.QtWidgets import QApplication
         QApplication([])          # 只是验证 Qt 能起来
         from .main_window import MainWindow
         win = MainWindow()
-        print(f"  OK   Qt 界面可构造（{win.windowTitle()}）")
+        report(f"  OK   Qt 界面可构造（{win.windowTitle()}）")
     except Exception as exc:
         ok = False
-        print(f"  FAIL Qt 界面: {exc}")
-    for extra in ("rapidocr_onnxruntime", "av"):
+        report(f"  FAIL Qt 界面: {exc}")
+    for extra, required in required_extras.items():
         try:
-            importlib.import_module(extra)
-            print(f"  OK   可选依赖 {extra}")
-        except Exception:
-            print(f"  --   可选依赖 {extra} 未打包（不影响主功能）")
-    print("自检" + ("通过" if ok else "失败"))
+            module = importlib.import_module(extra)
+            if extra == "rapidocr_onnxruntime" and required:
+                # 实例化会实际加载随包分发的 ONNX 模型，发现漏收模型文件。
+                module.RapidOCR()
+            elif extra == "av" and required:
+                module.CodecContext.create("h264", "r")
+            report(f"  OK   {'必需' if required else '可选'}依赖 {extra}")
+        except Exception as exc:
+            if required:
+                ok = False
+                report(f"  FAIL 必需依赖 {extra}: {exc}")
+            else:
+                report(f"  --   可选依赖 {extra} 未打包（不影响主功能）")
+    report("自检" + ("通过" if ok else "失败"))
+    if stream is None:
+        try:
+            log = Path(sys.executable).resolve().parent / "imeg_selftest.log"
+            log.write_text("\n".join(messages) + "\n", encoding="utf-8")
+        except OSError:
+            pass
     return 0 if ok else 1
 
 
