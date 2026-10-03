@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -69,6 +70,14 @@ def _find_adb(adb_path: str | None = None) -> str:
         candidates.append(str(Path(os.environ["ANDROID_HOME"]) / "platform-tools" / "adb"))
     if os.environ.get("ANDROID_SDK_ROOT"):
         candidates.append(str(Path(os.environ["ANDROID_SDK_ROOT"]) / "platform-tools" / "adb"))
+    # Packaged builds keep platform-tools beside IMEG.exe. In onedir mode __file__
+    # points into PyInstaller's _internal directory, so don't rely on it for this path.
+    if getattr(sys, "frozen", False):
+        app_dir = Path(sys.executable).resolve().parent
+        candidates.append(str(app_dir / "tools" / "platform-tools" / "adb"))
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(str(Path(meipass) / "tools" / "platform-tools" / "adb"))
     candidates.append(str(Path(__file__).resolve().parents[2] / "tools" / "platform-tools" / "adb"))
     candidates.append("adb")
     for c in candidates:

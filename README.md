@@ -258,15 +258,18 @@ imeg/
     build_exe.py    一键打包 EXE（免依赖 + 版本信息 + 签名）
     pyi_entry.py    打包入口（必须绝对导入，见文件内说明）
     fetch_scrcpy_server.py / make_icon.py 等小工具
-examples/           无界面脚本示例
+build_exe.bat       Windows 一键安装打包依赖、签名并生成便携包
+download_latest.bat 从 GitHub 快进同步最新代码
+upload_to_repo.bat  确认变更后提交并推送到 GitHub
 tests/              核心引擎 + 离屏 UI 冒烟测试
+examples/           无界面脚本示例
 ```
 
 ## 10. 测试
 
 ```bash
 pip install pytest
-pytest -q                 # 51 项：颜色解析、找图（含透明图）、找色、多点找色、
+pytest -q                 # 58 项：颜色解析、找图（含透明图）、找色、多点找色，
                           # 透明图算法、dm 门面、字库 OCR、配色表导入导出、
                           # 打包命令拼装、离屏 UI 各面板
 ```
@@ -275,9 +278,33 @@ UI 测试会离屏启动 Qt（`QT_QPA_PLATFORM=offscreen`），把每个面板�
 
 ## 11. 打包成 EXE（目标机器零依赖）
 
-```bash
-python -m imeg.tools.build_exe
+完整 Windows 发行包建议运行下面的一键脚本：
+
+```bat
+build_exe.bat
 ```
+
+若已自行准备好 Python 打包环境，可用以下命令显式生成完整便携包：
+
+```bash
+python -m imeg.tools.build_exe --with-ocr --with-av --with-scrcpy-server --require-adb --require-signature --sign-self --zip
+```
+
+### Windows 一键打包
+
+在 Windows 上双击仓库根目录的 `build_exe.bat` 即可。它会建立独立的 `.venv-build`，安装核心及可选依赖，
+再打出签名的便携版和 ZIP。默认包含 RapidOCR/ONNX 模型、PyAV、scrcpy-server、ADB 和 VC++ 运行库；
+如果构建机上没有 ADB，会从 Google 官方地址下载 Platform-Tools。打包必须能找到 Windows SDK 的 `signtool.exe`。
+
+正式发布建议改用受信任的代码签名证书：
+
+```bat
+set IMEG_SIGN_PFX=C:\certs\publisher.pfx
+set IMEG_SIGN_PASSWORD=证书密码
+build_exe.bat
+```
+
+不设置 PFX 时，批处理会创建并使用本机自签名证书。**自签名只是在 EXE 中写入签名，不会自动被另一台电脑信任，也不能消除 SmartScreen 警告。**
 
 产出 `dist/IMEG/` 整个目录，拷到**没装 Python / Qt / OpenCV / adb 的电脑**上双击 `IMEG.exe` 就能跑。
 它默认会做这些事：
@@ -285,9 +312,10 @@ python -m imeg.tools.build_exe
 1. 用 PyInstaller 打 `onedir`（不用 onefile：单文件自解压壳是杀软头号特征）+ `--noupx`
 2. 内嵌 **Windows 版本信息资源**（公司名/产品名/版本号/图标）—— 没有这个的
    PyInstaller 程序是杀软的重点怀疑对象
-3. 把 `adb` + `AdbWinApi.dll` 打进 `tools/platform-tools/`，目标机不用装 adb 也能连设备
+3. 把 `adb` + Windows 所需 DLL 打进 `tools/platform-tools/`；构建机找不到时自动下载官方 Platform-Tools
 4. 带上 VC++ 运行库，避免"缺 msvcp140.dll"
-5. 生成「使用说明.txt」和 `pic/` 模板目录
+5. 默认收集 RapidOCR/ONNX 模型、PyAV 和 scrcpy-server，使 OCR 与 scrcpy 可离线使用
+6. 打包后启动 EXE 自检，并生成「使用说明.txt」、`pic/` 模板目录和便携 ZIP
 
 常用参数：
 
@@ -296,16 +324,18 @@ python -m imeg.tools.build_exe
 | `--onefile` | 打成单文件 EXE（启动慢、更容易误报，不推荐） |
 | `--console` | 带控制台窗口，方便排错 |
 | `--zip` | 顺手压一个便携 zip |
-| `--with-ocr` / `--with-av` | 把 OCR（rapidocr）和 scrcpy 需要的 av 一起打进去 |
-| `--no-adb` / `--no-vcrt` | 跳过 adb / VC++ 运行库 |
-| `--sign-self` | 生成自签名证书并签名 |
-| `--sign-pfx x.pfx --sign-password xxx` | 用你自己的证书签名 |
+| `--with-ocr` | 把 RapidOCR、ONNX Runtime 和模型文件打进去 |
+| `--with-av` / `--with-scrcpy-server` | 打包 PyAV；后者还会内置或下载 scrcpy-server.jar |
+| `--require-adb` | 必须内置 ADB；Windows 上缺少时自动下载官方 Platform-Tools |
+| `--no-adb` / `--no-vcrt` | 手动跳过 ADB / VC++ 运行库（不适用于一键完整包） |
+| `--sign-self --require-signature` | 生成自签名证书并强制要求签名成功 |
+| `--sign-pfx x.pfx --sign-password xxx` | 用受信任的代码签名证书签名；也可设置 `IMEG_SIGN_PFX` / `IMEG_SIGN_PASSWORD` |
 | `--extra "..."` | 原样追加给 PyInstaller 的参数 |
 | `--dry-run` | 只打印命令，不执行 |
 
-**关于"签名避免被当病毒"的实话**：自签名证书**不能**让 SmartScreen 放行
-（它不信任自签证书），但能消掉"未签名可执行程序"这一类启发式规则，文件属性里
-也有发布者/版本/时间戳，不像随手生成的马。真想让 Windows 不再弹"未知发布者"只有两条路：
+**关于签名的实话**：自签名会给 EXE 写入 Authenticode 签名，但**不能**让 SmartScreen 放行，
+也不保证杀软不拦截；其他电脑默认不会信任这张证书。它主要用于校验文件完整性并标识签名者。
+真想让 Windows 不再弹"未知发布者"，需要使用受信任的 OV/EV 或开源代码签名服务证书：
 
 * 买 OV/EV 代码签名证书
 * 走免费的正经渠道：**SignPath.io Free Code Signing**（面向开源项目，要求公开仓库 +
@@ -321,7 +351,18 @@ IMEG.exe --version
 
 ---
 
-## 12. 平台限制 & 已知问题
+## 12. Git 仓库同步 BAT
+
+在已克隆的仓库目录中使用；需要安装 Git for Windows 并配置好 `origin` 与本机 GitHub 凭据（脚本不保存 Token）。
+
+- `download_latest.bat`：只对当前 Arena 工作分支 `arena/01a1029b-imeg` 做快进同步。若该远端分支尚未创建，会以 `origin/main` 同步基线；工作区有未提交变更时会停止，不会覆盖文件，也不会自动切换分支。
+- `upload_to_repo.bat "提交说明"`：先显示变更并要求确认，再执行 `git add -A`、提交并推送到 `origin/arena/01a1029b-imeg`。不带参数时会交互询问提交说明；被 `.gitignore` 忽略的 `build/`、`dist/`、虚拟环境不会上传。
+
+若推送因远端有新提交而被拒绝，先运行下载脚本；若无法快进，请手动处理 Git 分叉后再推送。脚本不执行强制推送。
+
+---
+
+## 13. 平台限制 & 已知问题
 
 * **窗口捕获 / Windows 后台消息键鼠只在 Windows 上可用**（Linux/macOS 上该源会提示不支持，其它功能照常）
 * ADB 截图对 **DRM / 安全页面**（部分视频与银行 App）会返回黑图，这是 Android 的限制，不是本工具的问题
@@ -330,6 +371,6 @@ IMEG.exe --version
 * 字库 OCR 只做单字匹配，没有做字体大小自适应（切字后按外接矩形缩放再比 IoU），
   同一套字库换分辨率时需要重录字符
 
-## 13. License
+## 14. License
 
 MIT
